@@ -1,6 +1,6 @@
 {
-  "name": "Kingston's Investment App",
-  "short_name": "Kingston Invest",
+  "name": "Kingston's Investment Tracker",
+  "short_name": "Kingston",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -19,5 +19,7 @@
       "type": "image/png",
       "purpose": "any"
     }
-  ]
+  ],
+  "id": "./",
+  "description": "Reviewed contributions and separately labelled estimated returns."
 }
