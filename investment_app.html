@@ -354,7 +354,7 @@
       { amount: 500, balance: 2440, date: new Date('2026-08-19T00:00:00+10:00').getTime() },
       { amount: 400, balance: 2840, date: new Date('2026-09-15T00:00:00+10:00').getTime() }
     ];
-    const RELEASE = '2026-10-09-r1';
+    const RELEASE = '2026-10-09-r2';
     const SEED_TOTAL = SEED_EVENTS.reduce((sum, event) => sum + event.amount, 0);
     let storageWritable = true;
     let storageMessage = '';
@@ -376,23 +376,32 @@
       const previous = data || {};
       const oldEvents = Array.isArray(previous.events) ? previous.events : [];
       const preservedForReview = Array.isArray(previous.preservedForReview) ? [...previous.preservedForReview] : [];
+      const retainedDuplicates = Array.isArray(previous.retainedDuplicates) ? [...previous.retainedDuplicates] : [];
+      const brisbaneDay = timestamp => Math.floor((timestamp + 10 * 60 * 60 * 1000) / 86400000);
       if (data && !Array.isArray(previous.events)) preservedForReview.push({ reason: 'Legacy saved data has no dated payment list', original: previous });
       const valid = [];
       oldEvents.forEach(event => {
         if (event && Number.isFinite(event.amount) && event.amount > 0 && Number.isFinite(event.date) && !Number.isNaN(new Date(event.date).getTime())) valid.push({ ...event });
         else preservedForReview.push({ reason: 'Unrecognised saved payment; not included in total', original: event });
       });
-      // Match only the exact reviewed seed timestamps/amounts. Other local payments remain intact.
+      // A reviewed payment is bound to its Brisbane calendar date and amount,
+      // not the time a legacy browser entry happened to be created.
       const events = [];
       SEED_EVENTS.forEach(seed => {
-        const match = valid.findIndex(event => event.date === seed.date && event.amount === seed.amount);
+        const sameDay = event => brisbaneDay(event.date) === brisbaneDay(seed.date);
+        const match = valid.findIndex(event => sameDay(event) && event.amount === seed.amount);
         const original = match >= 0 ? valid.splice(match, 1)[0] : {};
-        events.push({ ...original, ...seed });
+        events.push({ ...original, ...seed, ...(original.date && original.date !== seed.date ? { importedDate: original.date } : {}) });
         if (seed.date === SEED_EVENTS[3].date) {
-          const oldJuly = valid.findIndex(event => event.date === seed.date && event.amount === 400);
+          const oldJuly = valid.findIndex(event => sameDay(event) && event.amount === 400);
           if (oldJuly >= 0) {
             const replaced = valid.splice(oldJuly, 1)[0];
             previous.corrections = [...(Array.isArray(previous.corrections) ? previous.corrections : []), { release: RELEASE, reason: 'Owner-confirmed July amount correction', original: replaced, correctedAmount: 410 }];
+          }
+        }
+        for (let index = valid.length - 1; index >= 0; index--) {
+          if (sameDay(valid[index]) && valid[index].amount === seed.amount) {
+            retainedDuplicates.push({ reason: 'Additional imported representation of one reviewed dated payment; retained, not counted twice', original: valid.splice(index, 1)[0], release: RELEASE });
           }
         }
       });
@@ -400,8 +409,9 @@
       events.sort((a, b) => a.date - b.date);
       let runningCents = 0;
       events.forEach(event => { runningCents += Math.round(event.amount * 100); event.balance = runningCents / 100; });
-      data = { ...previous, release: RELEASE, events, preservedForReview, history: events.map(event => event.balance), totalContributed: runningCents / 100, contributionDate: events[0].date, lastUpdate: Date.now() };
+      data = { ...previous, release: RELEASE, events, preservedForReview, retainedDuplicates, history: events.map(event => event.balance), totalContributed: runningCents / 100, contributionDate: events[0].date, lastUpdate: Date.now() };
       if (preservedForReview.length) storageMessage += ' Some saved entries need review; they are retained in your backup and excluded from the displayed total.';
+      if (retainedDuplicates.length) storageMessage += ' Duplicate imported entries are retained in your payment backup and are not counted twice.';
     }
 
     function calculateBalanceAt(timeMs) {
